@@ -1,11 +1,10 @@
-# Spark Orders ETL Project
+# Retail Analysis Pipeline
 
-## Overview
-This project demonstrates a **modular PySpark ETL pipeline** for processing orders and customer data.  
-The pipeline performs the following tasks:
+This project demonstrates a PySpark-based data pipeline using **medallion architecture (Bronze → Silver → Gold)** and **Slowly Changing Dimension Type 2 (SCD2)**.
 
-1. Reads orders and customers data from CSV files
-2. Filters orders with status `CLOSED`
-3. Joins orders with customer data
-4. Aggregates the number of closed orders by state
-5. Logs progress using Log4j
+## Project Structure
+DataManipulation.py # PySpark functions for filtering, joining, aggregation, SCD2
+logger.py # Log4j wrapper for Spark logging
+application_main.py # Entry point for pipeline execution
+requirements.txt # Python dependencies
+README.md # Project documentation
