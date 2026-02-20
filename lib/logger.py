@@ -1,34 +1,40 @@
-class Log4j(object):
-   
-    def __init__(self, spark):
-        # get spark app details with which to prefix all messages
+from pyspark.sql import SparkSession
+from logger import Log4j
+from DataManipulation import (
+    filter_closed_orders, 
+    join_orders_customers, 
+    count_orders_state, 
+    apply_scd2
+)
 
-        log4j = spark._jvm.org.apache.log4j
-        self.logger = log4j.LogManager.getLogger("retail_analysis")
+# ---------------- Spark Session ----------------
+spark = SparkSession.builder \
+    .appName("Retail Analysis Pipeline") \
+    .getOrCreate()
 
-    def error(self, message):
-        """Log an error.
+# ---------------- Logger ----------------
+logger = Log4j(spark, app_name="retail_analysis")
+logger.info("Spark session started.")
 
-        :param: Error message to write to log
-        :return: None
-        """
-        self.logger.error(message)
-        
+# ---------------- Bronze Layer: Raw Data ----------------
+orders_raw_df = spark.read.csv("bronze/orders.csv", header=True, inferSchema=True)
+customers_raw_df = spark.read.csv("bronze/customers.csv", header=True, inferSchema=True)
+logger.info("Raw data loaded successfully.")
 
-    def warn(self, message):
-        """Log a warning.
+# ---------------- Silver Layer: Cleaned / SCD2 ----------------
+orders_closed_df = filter_closed_orders(orders_raw_df)
+logger.info(f"Filtered closed orders: {orders_closed_df.count()} rows.")
 
-        :param: Warning message to write to log
-        :return: None
-        """
-        self.logger.warn(message)
-        
+# Assume existing customer dimension exists in silver
+customers_existing_df = spark.read.parquet("silver/customers_silver.parquet")
+customers_silver_df = apply_scd2(customers_raw_df, customers_existing_df)
+logger.info("Applied SCD2 to customers dimension.")
 
-    def info(self, message):
-        """Log information.
+# ---------------- Gold Layer: Aggregations ----------------
+orders_customers_df = join_orders_customers(orders_closed_df, customers_silver_df)
+orders_by_state_df = count_orders_state(orders_customers_df)
+orders_by_state_df.write.mode("overwrite").parquet("gold/orders_by_state.parquet")
+logger.info("Orders by state written to Gold layer successfully.")
 
-        :param: Information message to write to log
-        :return: None
-        """
-        self.logger.info(message)
-        
+spark.stop()
+logger.info("Spark session stopped.")
