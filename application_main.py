@@ -1,36 +1,40 @@
-import sys
-from lib import DataManipulation, DataReader, Utils, logger
-from pyspark.sql.functions import *
-from lib.logger import Log4j
+from pyspark.sql import SparkSession
+from logger import Log4j
+from DataManipulation import (
+    filter_closed_orders, 
+    join_orders_customers, 
+    count_orders_state, 
+    apply_scd2
+)
 
-if __name__ == '__main__':
+# ---------------- Spark Session ----------------
+spark = SparkSession.builder \
+    .appName("Retail Analysis Pipeline") \
+    .getOrCreate()
 
-    if len(sys.argv) < 2:
-        print("Please specify the environment")
-        sys.exit(-1)
+# ---------------- Logger ----------------
+logger = Log4j(spark, app_name="retail_analysis")
+logger.info("Spark session started.")
 
-    job_run_env = sys.argv[1]
+# ---------------- Bronze Layer: Raw Data ----------------
+orders_raw_df = spark.read.csv("bronze/orders.csv", header=True, inferSchema=True)
+customers_raw_df = spark.read.csv("bronze/customers.csv", header=True, inferSchema=True)
+logger.info("Raw data loaded successfully.")
 
-    print("Creating Spark Session")
+# ---------------- Silver Layer: Cleaned / SCD2 ----------------
+orders_closed_df = filter_closed_orders(orders_raw_df)
+logger.info(f"Filtered closed orders: {orders_closed_df.count()} rows.")
 
-    spark = Utils.get_spark_session(job_run_env)
+# Assume existing customer dimension exists in silver
+customers_existing_df = spark.read.parquet("silver/customers_silver.parquet")
+customers_silver_df = apply_scd2(customers_raw_df, customers_existing_df)
+logger.info("Applied SCD2 to customers dimension.")
 
-    logger = Log4j(spark)
+# ---------------- Gold Layer: Aggregations ----------------
+orders_customers_df = join_orders_customers(orders_closed_df, customers_silver_df)
+orders_by_state_df = count_orders_state(orders_customers_df)
+orders_by_state_df.write.mode("overwrite").parquet("gold/orders_by_state.parquet")
+logger.info("Orders by state written to Gold layer successfully.")
 
-    logger.warn("Created Spark Session")
-
-    orders_df = DataReader.read_orders(spark,job_run_env)
-
-    orders_filtered = DataManipulation.filter_closed_orders(orders_df)
-
-    customers_df = DataReader.read_customers(spark,job_run_env)
-
-    joined_df = DataManipulation.join_orders_customers(orders_filtered,customers_df)
-
-    aggregated_results = DataManipulation.count_orders_state(joined_df)
-
-    aggregated_results.show(50)
-
-    #print(aggregated_results.collect())
-
-    logger.info("this is the end of main")
+spark.stop()
+logger.info("Spark session stopped.")
